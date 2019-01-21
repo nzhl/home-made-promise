@@ -17,7 +17,8 @@
     "url": "https://github.com/nzhl/promise/issues"
   },
   "homepage": "https://github.com/nzhl/promise#readme",
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
     "promises-aplus-tests": "^2.1.2"
   }
 }
