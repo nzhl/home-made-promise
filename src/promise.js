@@ -1,23 +1,8 @@
-var MyPromise = (function () {
+var EasyPromise = (function () {
   // resolve 和 reject 都是异步的
   // 因为 executor 中就算执调用行了resolve
   // 仍然要执行完executor之后的代码
   // 这点和throw 的机制不同
-  function resolve (value) {
-    // 如果value是promise， 则一直展开
-    // 直至value为非promise为止
-    if (value instanceof Promise) {
-      return value.then(resolve.bind(this), reject.bind(this))
-    }
-    setTimeout(() => {
-      if (this.status !== 'pending') return
-      this.status = 'resolved'
-      this.data = value
-      for (let each of this.onResolvedCallback) {
-        each(value)
-      }
-    }, 0)
-  }
 
   function reject (reason) {
     // reject 和resolve 不同，
@@ -32,46 +17,66 @@ var MyPromise = (function () {
     }, 0)
   }
 
-  function resolvePromise (promise, x, resolve, reject) {
+  function resolve (value) {
     // 如果resolve 返回的是then刚返回的promise，直接报错
-    // 因为这相当于链上连续两个相同的promise
-    // 具体情况可以看测试代码
-    if (promise === x) {
-      return reject(new TypeError('Chaining cycle detected for promise!'))
+    // 因为这相当于promise返回了自己, 由于promise会一直解
+    // 析直至非promise， 这将导致无限循环, 具体情况可以看测试代码
+    if (this === value) {
+      return reject.bind(this)(new TypeError('Chaining cycle detected for promise!'))
     }
 
-    // 因为我们只能假设它是thenable, 但实际上这个then不知道是什么
+    // 以下代码就是尝试展开一个promise
+    // 如果value是promise，或者是类promise i.e thenable
+    // 我们就尝试将它作为promise进行使用
+    // 这样做的原因是保证ES6之前的promise polyfill
+    // 也能和ES6的原生promise混用
+    // 但是实际上value.then 是什么我们并不清楚
     // 所以当then同时调用了 res, rej 的情况下
     // 我们以第一次调用的结果为准， 这也是为什么当
     // thenAlreadyCalledOrThrow 为true 时我们直接返回
     let thenAlreadyCalledOrThrow = false
-    if ((x !== null) && ((typeof x === 'object') || (typeof x === 'function'))) {
+    if ((value !== null) &&
+      ((typeof value === 'object') || (typeof value === 'function'))) {
       try {
-        let then = x.then
+        let then = value.then
         if (typeof then === 'function') {
           // 一个非空的对象， 假设它是thenable来保证promise的兼容性
           // 如果有then，直接把他当成promise来使用
-          then.call(x, function res (y) {
+          then.call(value, y => {
             if (thenAlreadyCalledOrThrow) return
             thenAlreadyCalledOrThrow = true
-            resolvePromise(promise, y, resolve, reject)
-          }, function rej (r) {
+            resolve.bind(this)(y)
+          }, r => {
             if (thenAlreadyCalledOrThrow) return
             thenAlreadyCalledOrThrow = true
-            reject(r)
+            reject.bind(this)(r)
           })
         } else {
           // x对象没有then，说明不是，相当于then里面返回了一个
-          // 正常的值， 所以直接resolve即可
-          resolve(x)
+          // 正常的值， 所以直接异步回调即可
+          setTimeout(() => {
+            if (this.status !== 'pending') return
+            this.status = 'resolved'
+            this.data = value
+            for (let each of this.onResolvedCallback) {
+              each(value)
+            }
+          }, 0)
         }
       } catch (e) {
         if (thenAlreadyCalledOrThrow) return
         thenAlreadyCalledOrThrow = true
-        reject(e)
+        reject.bind(this)(e)
       }
     } else {
-      resolve(x)
+      setTimeout(() => {
+        if (this.status !== 'pending') return
+        this.status = 'resolved'
+        this.data = value
+        for (let each of this.onResolvedCallback) {
+          each(value)
+        }
+      }, 0)
     }
   }
 
@@ -102,8 +107,9 @@ var MyPromise = (function () {
     // 这样才能调用之后的onrejected
     if (typeof onrejected !== 'function') onrejected = reason => { throw reason }
 
+    let thenPromise
     if (this.status === 'resolved') {
-      let thenPromise = new Promise((resolve, reject) => {
+      thenPromise = new Promise((resolve, reject) => {
         // 使用箭头函数来保证this一直指向原Promise对象
         // 源代码中使用了this
         // then函数返回时promise是同步的， 但执行then回调必须是异步的
@@ -120,26 +126,26 @@ var MyPromise = (function () {
             // 改变，所以已经确保了这个then起码会在下一个
             // event loop 才被调用， 也就是已经确保了异步
             var x = onfulfilled(this.data)
-            resolvePromise(thenPromise, x, resolve, reject)
+            // 这里的then 已经被绑定在了 thenPromise 上
+            // 所以不需要 bind
+            resolve(x)
           } catch (e) {
             reject(e)
           }
         })
       })
-      return thenPromise
     }
     if (this.status === 'rejected') {
-      let thenPromise = new Promise((resolve, reject) => {
+      thenPromise = new Promise((resolve, reject) => {
         setTimeout(() => {
           try {
             var x = onrejected(this.data)
-            resolvePromise(thenPromise, x, resolve, reject)
+            resolve(x)
           } catch (e) {
             reject(e)
           }
         })
       })
-      return thenPromise
     }
     if (this.status === 'pending') {
       // 这里之所以没有异步执行，是因为这些函数必然会被resolve或reject调用，而resolve或reject函数里的内容已是异步执行，构造函数里的定义
@@ -147,11 +153,11 @@ var MyPromise = (function () {
       // 但是并没有解释为什么添加之后是错的 (不信的可以拿源代码添加之后跑测试)
       // 原因在于， 如果源代码在下一个event loop 完成了， 那么他会立即调用回调，
       // 但是此时回调还没有被push到新的promise上
-      let thenPromise = new Promise((resolve, reject) => {
+      thenPromise = new Promise((resolve, reject) => {
         this.onResolvedCallback.push(() => {
           try {
             var x = onfulfilled(this.data)
-            resolvePromise(thenPromise, x, resolve, reject)
+            resolve(x)
           } catch (e) {
             reject(e)
           }
@@ -160,14 +166,14 @@ var MyPromise = (function () {
         this.onRejectedCallback.push(() => {
           try {
             var x = onrejected(this.data)
-            resolvePromise(thenPromise, x, resolve, reject)
+            resolve(x)
           } catch (e) {
             reject(e)
           }
         })
       })
-      return thenPromise
     }
+    return thenPromise
   }
 
   // for prmise A+ test
@@ -189,4 +195,4 @@ var MyPromise = (function () {
 })() // IIFE for old browser
 
 // ES6
-// export default MyPromise
+// export default EasyPromise
