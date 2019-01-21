@@ -1,4 +1,4 @@
-var Promise = (function () {
+var MyPromise = (function () {
   // resolve 和 reject 都是异步的
   // 因为 executor 中就算执调用行了resolve
   // 仍然要执行完executor之后的代码
@@ -50,15 +50,15 @@ var Promise = (function () {
         let then = x.then
         if (typeof then === 'function') {
           // 一个非空的对象， 假设它是thenable来保证promise的兼容性
-          // 如果有then， 说明他是
+          // 如果有then，直接把他当成promise来使用
           then.call(x, function res (y) {
             if (thenAlreadyCalledOrThrow) return
             thenAlreadyCalledOrThrow = true
-            return resolvePromise(promise, y, resolve, reject)
+            resolvePromise(promise, y, resolve, reject)
           }, function rej (r) {
             if (thenAlreadyCalledOrThrow) return
             thenAlreadyCalledOrThrow = true
-            return reject(r)
+            reject(r)
           })
         } else {
           // x对象没有then，说明不是，相当于then里面返回了一个
@@ -68,7 +68,7 @@ var Promise = (function () {
       } catch (e) {
         if (thenAlreadyCalledOrThrow) return
         thenAlreadyCalledOrThrow = true
-        return reject(e)
+        reject(e)
       }
     } else {
       resolve(x)
@@ -189,4 +189,4 @@ var Promise = (function () {
 })() // IIFE for old browser
 
 // ES6
-// export default Promise
+// export default MyPromise
