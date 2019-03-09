@@ -2,8 +2,7 @@
 Learning Promise by actually implementing it.
 
 ## Study
-1. `promise3.js` is the original version of the [Promise3](https://github.com/xieranmaya/Promise3) 
-2. `promise.js` is the revised version with verbose comments, which is easy to read.
+Just need to read `promise.js`, which contains verbose comments. 
 
 ## Test
 ```bash
